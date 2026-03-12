@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Finds video files in the CURRENT directory with width <= 576px and deletes them.
  *
  * Output:
- * - Grouped by status: DELETED (or DELETE*), KEEP, SKIP (and ERROR)
+ * - Grouped by status: PENDING (or DELETE* in dry-run), KEEP, SKIP (and ERROR)
  * - Alphabetical within each group
  * - Shows file, resolution, size, and total recovered
  *
@@ -152,38 +152,16 @@ foreach ($candidates as $c) {
     $res = "{$w}x{$h}";
 
     if ($w <= MAX_WIDTH) {
-        if ($dryRun) {
-            $rows[] = [
-                'status' => 'DELETE*',
-                'file' => $name,
-                'res' => $res,
-                'size' => $size,
-                'note' => 'dry-run',
-            ];
-            $totalRecovered += $size;
-            $deletedCount++;
-        } else {
-            $ok = @unlink($path);
-            if ($ok) {
-                $rows[] = [
-                    'status' => 'DELETED',
-                    'file' => $name,
-                    'res' => $res,
-                    'size' => $size,
-                    'note' => '',
-                ];
-                $totalRecovered += $size;
-                $deletedCount++;
-            } else {
-                $rows[] = [
-                    'status' => 'ERROR',
-                    'file' => $name,
-                    'res' => $res,
-                    'size' => $size,
-                    'note' => 'failed to delete (permissions?)',
-                ];
-            }
-        }
+        $rows[] = [
+            'status' => $dryRun ? 'DELETE*' : 'PENDING',
+            'file' => $name,
+            'path' => $path,
+            'res' => $res,
+            'size' => $size,
+            'note' => $dryRun ? 'dry-run' : '',
+        ];
+        $totalRecovered += $size;
+        $deletedCount++;
     } else {
         $rows[] = [
             'status' => 'KEEP',
@@ -209,7 +187,7 @@ $groups = [
 
 foreach ($rows as $r) {
     $status = $r['status'];
-    if ($status === 'DELETED' || $status === 'DELETE*') {
+    if ($status === 'DELETED' || $status === 'DELETE*' || $status === 'PENDING') {
         $groups['DELETED'][] = $r; // keep original status for printing
     } elseif ($status === 'KEEP') {
         $groups['KEEP'][] = $r;
@@ -279,4 +257,35 @@ echo "Deleted:   {$deletedCount}\n";
 echo "Kept:      {$keptCount}\n";
 echo "Skipped:   {$skippedCount}\n";
 echo "Recovered: " . bytesToHuman($totalRecovered) . " (" . number_format($totalRecovered) . " bytes)\n";
+
+// Confirmation prompt (skip in dry-run mode)
+if (!$dryRun && $deletedCount > 0) {
+    echo "\nDelete {$deletedCount} file(s)? Y/n: ";
+    system("stty -icanon");
+    $handle = fopen("php://stdin", "r");
+    $char = fgetc($handle);
+    fclose($handle);
+    system("stty sane");
+    echo "\n";
+
+    if (strtolower(trim($char)) !== 'y') {
+        echo "Operation aborted.\n";
+        exit;
+    }
+
+    $actualDeleted = 0;
+    foreach ($rows as &$r) {
+        if ($r['status'] !== 'PENDING') continue;
+        $ok = @unlink($r['path']);
+        if ($ok) {
+            $r['status'] = 'DELETED';
+            $actualDeleted++;
+        } else {
+            $r['status'] = 'ERROR';
+            $r['note'] = 'failed to delete (permissions?)';
+        }
+    }
+    unset($r);
+    echo "Deleted {$actualDeleted} file(s).\n";
+}
 
