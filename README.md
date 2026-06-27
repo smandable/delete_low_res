@@ -41,3 +41,7 @@ A summary at the end shows counts and total disk space recovered.
 
 - PHP 8.0+ (uses `str_starts_with`)
 - [FFmpeg](https://ffmpeg.org/) (`ffprobe` must be on your PATH)
+
+## License
+
+MIT
